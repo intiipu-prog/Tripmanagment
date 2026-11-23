@@ -19,13 +19,18 @@
 
 ## 저장소 동작
 - `*.github.io` 에서 열면 **Firebase(Firestore)** 에 저장하고, claude.ai에서 열면 claude 서버 DB에 저장합니다 (같은 `index.html`).
-- Firestore 컬렉션: `trips`, `plans`, `people` (문서 = `{ json, updatedAt }`)
-- Firestore 규칙: 여정·비용 검토는 읽기 모두 허용, 인원 정보는 로그인한 편집자만 읽기. 쓰기는 모두 로그인한 편집자만.
+- Firebase 프로젝트: **jjnb-tournament** (진주 놀방 대진표와 같은 프로젝트·같은 로그인 계정 사용)
+- Firestore 컬렉션: `trips`, `plans`, `people` (문서 = `{ json, updatedAt }`) — 진주 놀방은 `app`, `tournaments` 를 사용해 겹치지 않습니다.
+- Firestore 규칙: 여정·비용 검토는 읽기 모두 허용, 인원 정보는 로그인한 편집자만 읽기. 쓰기는 모두 로그인한 편집자만. (진주 놀방 규칙 포함 전체)
 
 ```
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // 진주 놀방 대진표
+    match /app/{id}         { allow read: if true; allow write: if request.auth != null; }
+    match /tournaments/{id} { allow read: if true; allow write: if request.auth != null; }
+    // 출장/여행 비용 종합
     match /trips/{id}  { allow read: if true; allow write: if request.auth != null; }
     match /plans/{id}  { allow read: if true; allow write: if request.auth != null; }
     match /people/{id} { allow read, write: if request.auth != null; }
