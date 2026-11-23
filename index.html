@@ -1817,8 +1817,9 @@ function viewTrips(){
     <div class="seg tl-seg"><button type="button" data-act="tlGroup" data-v="all" class="${S.tlGroup==='all'?'on':''}">전체</button><button type="button" data-act="tlGroup" data-v="date" class="${S.tlGroup==='date'?'on':''}">날짜순</button><button type="button" data-act="tlGroup" data-v="scope" class="${S.tlGroup==='scope'?'on':''}">해외/국내별</button></div>
     <button type="button" class="btn sm" data-act="tlSort">${S.tlSort==='asc'?'오래된순 ↑':'최신순 ↓'}</button>
     <div class="catbar tl-filter"><button type="button" data-act="tlFilter" data-v="all" class="${S.tlFilter==='all'?'on':''}">모두 ${all.length}</button><button type="button" data-act="tlFilter" data-v="intl" class="${S.tlFilter==='intl'?'on':''}">해외 ${nI}</button><button type="button" data-act="tlFilter" data-v="dom" class="${S.tlFilter==='dom'?'on':''}">국내 ${nD}</button></div></div>`:'';
-  return `<section class="head-row"><h2>출장/여행 관리</h2>${S.ro?'':`<div class="btns">
-    <button class="btn" data-act="importTrip">스프레드시트 가져오기</button>
+  return `<section class="head-row"><h2>출장/여행 관리</h2>${S.ro?(all.length?`<div class="btns"><button class="btn" data-act="exportTrips">데이터 내보내기</button></div>`:''):`<div class="btns">
+    <button class="btn" data-act="importTrip">데이터 가져오기</button>
+    <button class="btn" data-act="exportTrips">데이터 내보내기</button>
     <button class="btn" data-act="copyTripFrom">기존 여정 복사</button>
     <button class="btn primary" data-act="newTrip">+ 여정 등록</button></div>`}</section>
   ${bar}${body}`;
@@ -2277,6 +2278,42 @@ function mountDayTrip(el){ // 당일 체크: 종료일 = 시작일로 고정
   const sync=()=>{if(c.checked){e0.value=s0.value;e0.disabled=true;}else e0.disabled=false;e0.dispatchEvent(new Event('change'));};
   c.addEventListener('change',sync);s0.addEventListener('change',()=>{if(c.checked){e0.value=s0.value;e0.dispatchEvent(new Event('change'));}});
   if(c.checked){e0.value=s0.value;e0.disabled=true;}
+}
+
+/* ---------- 데이터 내보내기 (출장/여행 관리) ---------- */
+function allTripsSheets(list){
+  const head=[['구분','여정명','시작일','종료일','국가','도시','업체명','목적','출장자 수','출장자','지출 건수','총 비용(원)','1인 평균(원)']];
+  const rows=list.map(t=>{const c=calc(t);return[planScope(t)==='dom'?'국내':'해외',t.name,t.startDate||'',t.endDate||'',t.country||'',t.city||(t.country?'':t.location||''),t.company||'',t.purpose||'',(t.memberIds||[]).length,(t.memberIds||[]).map(id=>memberName(t,id)).join(', '),(t.expenses||[]).length,Math.round(c.total),Math.round(c.avg)];});
+  const sum=list.reduce((s,t)=>s+calc(t).total,0);
+  rows.push([],['','합계','','','','','','','','',list.reduce((s,t)=>s+(t.expenses||[]).length,0),Math.round(sum),'']);
+  const ex=[['여정명','일자','항목','통화','금액','단위','결제환율','원화금액','대상인원','결제자','메모']];
+  list.forEach(t=>{const nm=id=>memberName(t,id);sortedExp(t).forEach(e=>ex.push([t.name,e.date||'',e.item,e.currency||'KRW',pnum(e.amount),pnum(e.unit)||1,pnum(e.rate)||1,Math.round(expKRW(e)),(e.targets||[]).map(nm).join(', '),(e.payers||[]).map(nm).join(', '),e.memo||'']));});
+  const st=[['여정명','출장자','팀','부담액(+)','결제액(-)','정산합계']];
+  list.forEach(t=>{const c=calc(t);(t.memberIds||[]).forEach(id=>{const v=c.per[id];st.push([t.name,memberName(t,id),memberTeam(t,id),Math.round(v.share),-Math.round(v.paid),Math.round(v.net)]);});});
+  return[['여정 목록',head.concat(rows)],['전체 지출내역',ex],['전체 정산',st]];
+}
+function tripsExportModal(){
+  const sortL=a=>a.sort((x,y)=>(y.startDate||'').localeCompare(x.startDate||''));
+  const all=sortL(Object.values(S.trips));
+  const shown=all.filter(t=>S.tlFilter==='all'||planScope(t)===S.tlFilter);
+  const fLbl={all:'모두',intl:'해외',dom:'국내'}[S.tlFilter]||'모두';
+  openModal('데이터 내보내기',`<div class="menu-list">
+    <button class="btn" data-x="all">전체 여정 엑셀(.xlsx)<small>여정 목록 · 전체 지출내역 · 전체 정산 시트 · 여정 ${all.length}건</small></button>
+    ${S.tlFilter!=='all'?`<button class="btn" data-x="shown">지금 필터(${fLbl}) 여정만 엑셀(.xlsx)<small>${shown.length}건</small></button>`:''}
+    <button class="btn" data-x="copy">여정 목록 표 복사<small>스프레드시트에 바로 붙여넣기</small></button>
+    ${isEditor()?`<button class="btn" data-x="json">전체 백업 파일(.json)<small>여정·비용 검토·인원 정보 전체 · ‘데이터 가져오기’로 되돌릴 수 있음</small></button>`:''}</div>
+    <h4 class="sec">여정 하나만 내보내기 <small>‘데이터 가져오기’로 다시 불러올 수 있는 형식</small></h4>
+    <select class="inp" data-one>${all.map(t=>`<option value="${t.id}">${esc(t.name)} · ${esc(dateRange(t))}</option>`).join('')}</select>
+    <div class="btns" style="margin-top:8px"><button class="btn sm" data-x="one">엑셀(.xlsx)</button><button class="btn sm" data-x="onepdf">PDF</button></div>`,
+    '<button class="btn" data-close>닫기</button>',el=>{
+    el.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{const x=b.dataset.x;
+      if(x==='copy'){copyText(toTSV(allTripsSheets(shown)[0][1]),'여정 목록');closeModal(el);return;}
+      if(x==='json'){closeModal(el);const d=backupData();saveFile(`출장여행_전체백업_${today()}.json`,JSON.stringify({app:'trip-settle',version:1,exportedAt:new Date().toISOString(),...d},null,1));return;}
+      const one=S.trips[el.querySelector('[data-one]').value];
+      if(x==='one'){if(!one)return;closeModal(el);saveXlsx(`출장정산_${fnameSafe(one.name)}.xlsx`,tripSheets(one));return;}
+      if(x==='onepdf'){if(!one)return;closeModal(el);savePdf('trip',one);return;}
+      closeModal(el);const l=x==='shown'?shown:all;saveXlsx(`출장여행_전체_${today()}${x==='shown'?'_'+fLbl:''}.xlsx`,allTripsSheets(l));});
+  });
 }
 
 function memberPickModal(t){
@@ -2748,10 +2785,11 @@ function normDate(v){
 }
 function tripImportModal(){
   let parsed=null;
-  openModal('출장 가져오기',`<p class="muted small" style="margin-top:0">이 프로그램에서 내보낸 출장 엑셀(.xlsx)을 올리면 새 출장으로 등록됩니다. 구글 스프레드시트에서 편집했다면 파일 → 다운로드 → Microsoft Excel(.xlsx)로 받아 올리세요. 출장자는 인원 정보의 이름·팀으로 연결되고, 없으면 새로 추가됩니다.</p>
-    <input type="file" accept=".xlsx,.xls" data-file><div data-sum style="margin-top:10px"></div>`,
+  openModal('데이터 가져오기',`<p class="muted small" style="margin-top:0"><b>여정 엑셀(.xlsx)</b> 또는 <b>전체 백업 파일(.json)</b>을 고르세요.<br>이 프로그램에서 내보낸 출장 엑셀(.xlsx)을 올리면 새 출장으로 등록됩니다. 구글 스프레드시트에서 편집했다면 파일 → 다운로드 → Microsoft Excel(.xlsx)로 받아 올리세요. 출장자는 인원 정보의 이름·팀으로 연결되고, 없으면 새로 추가됩니다.</p>
+    <input type="file" accept=".xlsx,.xls,.json,application/json" data-file><div data-sum style="margin-top:10px"></div>`,
     `<button class="btn" data-close>취소</button><button class="btn primary" data-done disabled>완료</button>`,el=>{
     el.querySelector('[data-file]').onchange=ev=>{const f=ev.target.files[0];if(!f)return;
+      if(!/\.xlsx?$/i.test(f.name)){const fj=new FileReader();fj.onload=()=>{try{const d=JSON.parse(fj.result);closeModal(el);restoreFrom(Array.isArray(d)?{trips:d}:d,'백업 파일');}catch(e){toast('백업 파일을 읽지 못했습니다',true);}};fj.readAsText(f,'utf-8');return;}
       if(!window.XLSX){toast('엑셀 라이브러리를 불러오지 못했습니다',true);return;}
       const fr=new FileReader();fr.onload=()=>{try{parsed=parseTripWB(XLSX.read(new Uint8Array(fr.result),{type:'array'}));
         el.querySelector('[data-sum]').innerHTML=`<div class="card"><b>${esc(parsed.t.name)}</b><div class="muted small">${esc(dateRange(parsed.t))} · 출장자 ${parsed.members.length}명 · 환율 ${parsed.t.rates.length}개 · 지출 ${parsed.exp.length}건</div></div>`;
@@ -3435,6 +3473,7 @@ const ACT={
     saveTrip(t);S.view='trip';S.tripId=t.id;S.tripTab='members';render();window.scrollTo(0,0);toast('여정을 등록했습니다. 출장자를 지정하세요');},'등록');},
   exitView:()=>{const k=S.viewKind;location.hash='';if(!isEditor()||!(k==='plan'?curPlan():cur())){S.view=k==='plan'?'plans':'trips';}render();},
   newTrip:()=>tripModal(),
+  exportTrips:()=>tripsExportModal(),
   login:()=>loginModal(),
   logout:async()=>{try{await firebase.auth().signOut();toast('로그아웃했습니다');}catch(e){}},
   viewOnly:()=>{S.viewOnly=!S.viewOnly;applyHash();render();toast(S.viewOnly?'뷰어 모드로 보는 중입니다 (편집 버튼 숨김)':'편집자 모드로 돌아왔습니다');},
@@ -3467,7 +3506,7 @@ const ACT={
   peopleImport:()=>peopleImportModal(),
   peopleExport:()=>peopleExportModal(),
 };
-const RO_OK=new Set(['tab','exportTrip','copySettle','exitView','copyAcct','ptab','exportPlan','copyPlanSum','pdfTrip','pdfPlan','openTrip','openPlan','back','backPlans','qrTrip','qrPlan','tlGroup','tlSort','tlFilter','login','logout','viewOnly','copyLink','saveQR','previewView']);
+const RO_OK=new Set(['exportTrips','tab','exportTrip','copySettle','exitView','copyAcct','ptab','exportPlan','copyPlanSum','pdfTrip','pdfPlan','openTrip','openPlan','back','backPlans','qrTrip','qrPlan','tlGroup','tlSort','tlFilter','login','logout','viewOnly','copyLink','saveQR','previewView']);
 $('#app').addEventListener('click',e=>{
   const prb=e.target.closest('#plan-rates [data-ract]');
   if(prb){if(S.ro)return;const i=+prb.dataset.i;const p=curPlan();const r=(p.rates||[])[i];if(!r)return;
